@@ -184,19 +184,22 @@ def yieldtablerows(table):
         yield [table.getValue(row, col) for col in table.getColumns()]
         
 
-def table2html(table, colnames=None, printRowNames = True, border=True):
+def table2html(table, colnames=None, printRowNames = True, border=True, sortcolumns = False, reversesort = False):
     table = getTable(table, colnames)
     if table.rowNamesRequired == True:
         printRowNames = True
     result = "\n<table border='1'>" if border else "\n<table>"
     result += "\n  <thead><tr>"
     if printRowNames: result += "\n    <th></th>"
-    result += "%s\n  </tr></thead><tbody>" % "".join("\n    <th>%s</th>" % (col,) for col in table.getColumns())
+    if sortcolumns: 
+        sort = sorted([(str(c),c) for c in table.getColumns()])
+        if reversesort: sort = reversed(sort)
+        cols = [col[1] for col in sort]
+    result += "%s\n  </tr></thead><tbody>" % "".join("\n    <th>%s</th>" % (col,) for col in cols)
     for row in table.getRows():
         result += "\n  <tr>"
         if printRowNames: result += "\n    <th>%s</th>" % (row,)
-        
-        result += "".join("\n    <td>%s</td>" % table.getValue(row, col) for col in table.getColumns())
+        result += "".join("\n    <td>%s</td>" % table.getValue(row, col) for col in cols)
         result += "</tr>"
     result += "\n</tbody></table>"
     return result

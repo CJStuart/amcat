@@ -30,7 +30,8 @@ from amcat.tools import toolkit, sendmail
 import logging;log = logging.getLogger(__name__)
 import os
 from django import forms
-from datetime import date
+from datetime import date, timedelta
+
 
 MAIL_HTML = """<h3>Report for daily scraping on {datestr}</h3>
 
@@ -39,12 +40,9 @@ MAIL_HTML = """<h3>Report for daily scraping on {datestr}</h3>
 
 <p>For log details, ssh to amcat-dev.labs.vu.nl, then open /home/amcat/log/daily_{_date.year:04d}-{_date.month:02d}-{_date.day:02d}.txt</p>
 
-<p>For a complete overview of last week's results, navigate to http://amcat-production.labs.vu.nl/navigator/scrapers</p>
+<p>For a complete overview of last week's results, navigate <a href="http://amcat.vu.nl/navigator/scrapers">here</a>.</p>
 """
 
-MAIL_ASCII = MAIL_HTML
-for tag in ['h3','p']:
-    MAIL_ASCII = unicode(MAIL_ASCII.replace("<{}>".format(tag), "").replace("</{}>".format(tag), ""))
     
 class ScrapingCheckForm(forms.Form):
     date = forms.DateField()
@@ -59,85 +57,72 @@ class ScrapingCheck(Script):
         self.send_mail(result)
 
     def make_table(self, result):
-        from amcat.tools.table.table3 import DictTable
+        from amcat.tools.table.table3 import DictTable, SortedTable
+        from amcat.tools.table.tableoutput import table2html
         table = DictTable()
-        for r in result:
-            if r['expected'] == "unknown":
-                exvalue = "unknown"
-            else:
-                exvalue = "{0:.2f}-{1:.2f}".format(r['expected'][0], r['expected'][1])
+        for scraper, res in result.items():
+            succ, data = res
             table.addValue(
-                row = r['scraper'],
-                col = "expected range",
-                value = exvalue
+                row = scraper,
+                col = "success days",
+                value = succ
                 )
             table.addValue(
-                row = r['scraper'],
-                col = "total scraped",
-                value = r['count']
+                row = scraper,
+                col = "id",
+                value = scraper.id
                 )
             table.addValue(
-                row = r['scraper'],
-                col = "successful",
-                value = r['success']
+                row = scraper,
+                col = "set",
+                value = scraper.articleset.id
                 )
-        return table
+            table.addValue(
+                row = scraper,
+                col = "project",
+                value = scraper.articleset.project.id
+                )
+            for day, n in data.items():
+                table.addValue(
+                    row = scraper,
+                    col = day,
+                    value = n
+                    )        
+        return table2html(table, sortcolumns = True,reversesort = True)
 
     def send_mail(self, result):        
-        table = self.make_table(result).output(rownames = True)
-        n = sum([r['count'] for r in result])
-        succesful = sum([r['success'] for r in result])
-        total = len(result)
+        table = self.make_table(result)
         datestr = toolkit.writeDate(self.options['date'])
-        subject = "Daily scraping for {datestr}: {n} articles, {succesful} out of {total} scrapers succesful".format(**locals())
+        subject = "Daily scraping for {datestr}".format(**locals())
         _date = self.options['date']
-        content = MAIL_ASCII.format(**locals())
+        content = MAIL_HTML.format(**locals())
         for addr in self.options['mail_to'].split(","):
             sendmail.sendmail("toon.alfrink@gmail.com",
-                     addr, subject, None, content)
+                     addr, subject, content, None)
 
     def get_result(self):
-        result = []
+        out = {}
+        dates = toolkit.daterange(self.options['date'] - timedelta(days = 6),self.options['date'])
         for scraper in Scraper.objects.filter(active=True,run_daily=True):
-            if scraper.statistics:
-                n_expected = scraper.statistics[self.options['date'].weekday()]
-            else:
-                n_expected = "unknown"
+            succ = 0
             n_scraped = scraper.n_scraped_articles(
-                from_date = self.options['date'],
-                to_date = self.options['date'],
+                from_date = dates[0],
+                to_date = dates[-1],
                 medium = Medium.get_or_create(scraper.get_scraper_class().medium_name)
-                )[self.options['date']]
+                )
 
-            if n_expected == "unknown":
-                if n_scraped > 0:
-                    success = True
+            for day in dates:
+                if scraper.statistics:
+                    n_expected = scraper.statistics[day.weekday()]
+                    if n_scraped[day] >= n_expected[0]:
+                        succ += 1
                 else:
-                    success = False
-            else:
-                if n_scraped < n_expected[0]:
-                    success = False
-                else:
-                    success = True
-
-            scraper_result = {
-                'scraper':scraper,
-                'count':n_scraped,
-                'expected':n_expected,
-                'success':success
-                }
-                
-            log.info("""
-scraper: {scraper}
-\tcount: {count}
-\texpected: {expected}
-\tsuccess?: {success}
-""".format(**scraper_result))
-                    
-            result.append(scraper_result)
-
-        return result
-
+                    if n_scraped[day] > 0:
+                        succ += 1
+            out[scraper] = (succ,n_scraped)
+        from pprint import pprint
+        pprint(out)
+        return out
 
 if __name__ == "__main__":
     from amcat.scripts.tools import cli

@@ -20,7 +20,7 @@ from __future__ import unicode_literals, print_function, absolute_import
 
 """ORM Module representing scrapers"""
 
-import datetime
+from datetime import timedelta
 from django.db import models
 from amcat.tools.model import AmcatModel
 from amcat.tools.djangotoolkit import JsonField
@@ -89,7 +89,13 @@ class Scraper(AmcatModel):
         # aggregate count group by date, return as dict
         q = q.extra(select=dict(d="cast(date as date)")).values_list("d")
         q = q.annotate(models.Count("id"))
-        return dict(q)
+        q = dict(q)
+        dates = [from_date + timedelta(days = x) for x in range((to_date - from_date).days + 1)]
+        for d in dates:
+            if d not in q:
+                q[d] = 0
+
+        return q
 
 ###########################################################################
 #                          U N I T   T E S T S                            #

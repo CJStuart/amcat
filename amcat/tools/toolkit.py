@@ -697,6 +697,9 @@ def dateToInterval(date, interval):
         return date.strftime('%Y')
     raise Exception('invalid interval')
 
+def daterange(date1,date2,interval=1):
+    return [date1 + datetime.timedelta(days = x) for x in range((date2 - date1).days + 1)][::interval]
+    
 
 ###########################################################################
 ##              Process Handling and External Processes                  ##
